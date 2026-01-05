@@ -1,29 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-工具函数模块
-提供日志、配置加载等通用功能
+日志工具
 """
 import os
-import yaml
 import logging
 from pathlib import Path
-from typing import Dict, Any
-
-
-def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
-    """
-    加载配置文件
-    
-    Args:
-        config_path: 配置文件路径
-        
-    Returns:
-        配置字典
-    """
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
-    return config
 
 
 def setup_logger(name: str, log_dir: str = "logs", level: str = "INFO") -> logging.Logger:
@@ -72,27 +54,4 @@ def setup_logger(name: str, log_dir: str = "logs", level: str = "INFO") -> loggi
     logger.addHandler(file_handler)
     
     return logger
-
-
-def ensure_dir(directory: str) -> None:
-    """
-    确保目录存在，不存在则创建
-    
-    Args:
-        directory: 目录路径
-    """
-    Path(directory).mkdir(parents=True, exist_ok=True)
-
-
-def save_metadata(metadata: Dict[str, Any], output_path: str) -> None:
-    """
-    保存元数据到YAML文件
-    
-    Args:
-        metadata: 元数据字典
-        output_path: 输出路径
-    """
-    ensure_dir(os.path.dirname(output_path))
-    with open(output_path, 'w', encoding='utf-8') as f:
-        yaml.dump(metadata, f, allow_unicode=True, default_flow_style=False)
 

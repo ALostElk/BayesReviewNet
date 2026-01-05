@@ -1,77 +1,77 @@
-# 贝叶斯网络虚假评论识别 - 配置文件
+﻿# 璐濆彾鏂綉缁滆櫄鍋囪瘎璁鸿瘑鍒?- 閰嶇疆鏂囦欢
 
-# 数据路径配置
+# 鏁版嵁璺緞閰嶇疆
 data_paths:
   amazon:
-    raw_dir: "数据集/训练集/Amazon Review Data"
+    raw_dir: "鏁版嵁闆?璁粌闆?Amazon Review Data"
     processed_dir: "processed_data/amazon"
   opspam:
-    raw_dir: "数据集/训练集/op_spam_AI-main"
+    raw_dir: "鏁版嵁闆?璁粌闆?op_spam_AI-main"
     processed_dir: "processed_data/opspam"
   yelp:
-    raw_dir: "数据集/测试集/Yelp-JSON"
+    raw_dir: "鏁版嵁闆?娴嬭瘯闆?Yelp-JSON"
     processed_dir: "processed_data/yelp"
 
-# 输出路径
+# 杈撳嚭璺緞
 output:
   features_dir: "features"
   discretized_dir: "discretized"
   metadata_dir: "metadata"
   logs_dir: "logs"
 
-# 文本特征配置
+# 鏂囨湰鐗瑰緛閰嶇疆
 text_features:
-  min_review_length: 10  # 最小评论长度（词数）
-  max_review_length: 5000  # 最大评论长度
+  min_review_length: 10  # 鏈€灏忚瘎璁洪暱搴︼紙璇嶆暟锛?
+  max_review_length: 5000  # 鏈€澶ц瘎璁洪暱搴?
   
-# 用户行为特征配置
+# 鐢ㄦ埛琛屼负鐗瑰緛閰嶇疆
 user_features:
-  min_review_count: 1  # 最小评论数
+  min_review_count: 1  # 鏈€灏忚瘎璁烘暟
   
-# 离散化配置
+# 绂绘暎鍖栭厤缃?
 discretization:
-  # 评论长度离散化
+  # 璇勮闀垮害绂绘暎鍖?
   review_length:
     bins: [0, 50, 200, 10000]
     labels: ["SHORT", "NORMAL", "LONG"]
   
-  # 情感分数离散化
+  # 鎯呮劅鍒嗘暟绂绘暎鍖?
   sentiment_score:
     bins: [-1.0, -0.3, 0.3, 1.0]
     labels: ["NEGATIVE", "NEUTRAL", "POSITIVE"]
   
-  # 主观性分数离散化
+  # 涓昏鎬у垎鏁扮鏁ｅ寲
   subjectivity_score:
     bins: [0, 0.3, 0.7, 1.0]
     labels: ["OBJECTIVE", "MIXED", "SUBJECTIVE"]
   
-  # 用户评论数离散化
+  # 鐢ㄦ埛璇勮鏁扮鏁ｅ寲
   user_review_count:
     bins: [0, 5, 20, 10000]
     labels: ["LOW", "MEDIUM", "HIGH"]
   
-  # 评分偏差离散化
+  # 璇勫垎鍋忓樊绂绘暎鍖?
   rating_deviation:
     bins: [0, 0.5, 1.5, 5.0]
     labels: ["LOW", "MEDIUM", "HIGH"]
   
-  # 评分熵离散化
+  # 璇勫垎鐔电鏁ｅ寲
   rating_entropy:
     bins: [0, 0.5, 1.2, 2.0]
     labels: ["LOW", "MEDIUM", "HIGH"]
   
-  # 评论爆发性离散化
+  # 璇勮鐖嗗彂鎬х鏁ｅ寲
   review_burstiness:
     bins: [0, 1, 7, 10000]
     labels: ["RAPID", "NORMAL", "SPARSE"]
 
-# 采样配置（用于快速测试）
+# 閲囨牱閰嶇疆锛堢敤浜庡揩閫熸祴璇曪級
 sampling:
-  enabled: false  # 是否启用采样
+  enabled: false  # 鏄惁鍚敤閲囨牱
   amazon_sample_size: 10000
   yelp_sample_size: 10000
 
-# 日志配置
+# 鏃ュ織閰嶇疆
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

@@ -28,13 +28,17 @@ env/
 
 # 处理后的数据（运行时生成，不提交）
 processed_data/
-features/
-discretized/
+data/raw/
+data/processed/
 *.parquet
 
 # 大型CSV文件（运行时生成，不提交）
 discretized/*.csv
 bn_input_data.csv
+
+# 旧版输出目录（运行时生成，不提交）
+features/
+discretized/
 
 # 日志文件（运行时生成，不提交）
 logs/
