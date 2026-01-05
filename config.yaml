@@ -1,0 +1,78 @@
+# 贝叶斯网络虚假评论识别 - 配置文件
+
+# 数据路径配置
+data_paths:
+  amazon:
+    raw_dir: "数据集/训练集/Amazon Review Data"
+    processed_dir: "processed_data/amazon"
+  opspam:
+    raw_dir: "数据集/训练集/op_spam_AI-main"
+    processed_dir: "processed_data/opspam"
+  yelp:
+    raw_dir: "数据集/测试集/Yelp-JSON"
+    processed_dir: "processed_data/yelp"
+
+# 输出路径
+output:
+  features_dir: "features"
+  discretized_dir: "discretized"
+  metadata_dir: "metadata"
+  logs_dir: "logs"
+
+# 文本特征配置
+text_features:
+  min_review_length: 10  # 最小评论长度（词数）
+  max_review_length: 5000  # 最大评论长度
+  
+# 用户行为特征配置
+user_features:
+  min_review_count: 1  # 最小评论数
+  
+# 离散化配置
+discretization:
+  # 评论长度离散化
+  review_length:
+    bins: [0, 50, 200, 10000]
+    labels: ["SHORT", "NORMAL", "LONG"]
+  
+  # 情感分数离散化
+  sentiment_score:
+    bins: [-1.0, -0.3, 0.3, 1.0]
+    labels: ["NEGATIVE", "NEUTRAL", "POSITIVE"]
+  
+  # 主观性分数离散化
+  subjectivity_score:
+    bins: [0, 0.3, 0.7, 1.0]
+    labels: ["OBJECTIVE", "MIXED", "SUBJECTIVE"]
+  
+  # 用户评论数离散化
+  user_review_count:
+    bins: [0, 5, 20, 10000]
+    labels: ["LOW", "MEDIUM", "HIGH"]
+  
+  # 评分偏差离散化
+  rating_deviation:
+    bins: [0, 0.5, 1.5, 5.0]
+    labels: ["LOW", "MEDIUM", "HIGH"]
+  
+  # 评分熵离散化
+  rating_entropy:
+    bins: [0, 0.5, 1.2, 2.0]
+    labels: ["LOW", "MEDIUM", "HIGH"]
+  
+  # 评论爆发性离散化
+  review_burstiness:
+    bins: [0, 1, 7, 10000]
+    labels: ["RAPID", "NORMAL", "SPARSE"]
+
+# 采样配置（用于快速测试）
+sampling:
+  enabled: false  # 是否启用采样
+  amazon_sample_size: 10000
+  yelp_sample_size: 10000
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
