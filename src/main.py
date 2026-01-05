@@ -57,13 +57,16 @@ class BayesReviewNetPipeline:
         logger.info("BayesReviewNet Pipeline 初始化")
         logger.info("="*80)
     
-    def run(self, dataset_name: str, structure_type: str = 'default'):
+    def run(self, dataset_name: str, structure_type: str = 'default') -> dict:
         """
         运行完整Pipeline
         
         Args:
             dataset_name: 数据集名称 ('amazon', 'yelp')
             structure_type: 贝叶斯网络结构类型
+            
+        Returns:
+            处理结果统计字典
         """
         if dataset_name not in self.SUPPORTED_DATASETS:
             raise ValueError(f"不支持的数据集: {dataset_name}。支持的数据集: {self.SUPPORTED_DATASETS}")
@@ -78,6 +81,10 @@ class BayesReviewNetPipeline:
         logger.info("\n【阶段2】特征工程 - 提取Text + Behavior + Network特征")
         df = self._extract_features(df)
         
+        # ========== 阶段2.5: 构造弱标签 ==========
+        logger.info("\n【阶段2.5】弱标签构造")
+        df = self._construct_weak_labels(df, dataset_name)
+        
         # ========== 阶段3: 贝叶斯网络建模 ==========
         logger.info("\n【阶段3】贝叶斯网络建模")
         structure, cpd_learner = self._build_bayesian_network(df, structure_type)
@@ -87,11 +94,16 @@ class BayesReviewNetPipeline:
         df = self._inference_and_evaluate(df, structure, cpd_learner, dataset_name)
         
         # ========== 保存最终结果 ==========
-        self._save_results(df, dataset_name)
+        output_path = self._save_results(df, dataset_name)
+        
+        # ========== 生成统计信息 ==========
+        stats = self._generate_statistics(df, dataset_name, output_path)
         
         logger.info(f"\n{'='*80}")
         logger.info(f"数据集 {dataset_name} 处理完成！")
         logger.info(f"{'='*80}\n")
+        
+        return stats
     
     def _preprocess(self, dataset_name: str):
         """
@@ -161,6 +173,20 @@ class BayesReviewNetPipeline:
         logger.info(f"特征工程完成: {len([c for c in df.columns if '_discrete' in c])} 个离散特征")
         return df
     
+    def _construct_weak_labels(self, df, dataset_name: str):
+        """
+        阶段2.5: 构造弱标签
+        
+        基于启发式规则或平台信号构造弱监督标签
+        必须在特征提取之后、贝叶斯网络建模之前执行
+        """
+        from src.preprocessing.weak_labeling import construct_weak_label
+        
+        platform = df['platform'].iloc[0] if 'platform' in df.columns else dataset_name
+        df = construct_weak_label(df, platform)
+        
+        return df
+    
     def _build_bayesian_network(self, df, structure_type: str):
         """
         阶段3: 贝叶斯网络建模
@@ -204,15 +230,73 @@ class BayesReviewNetPipeline:
         
         return df
     
-    def _save_results(self, df, dataset_name: str):
-        """保存最终结果到data/processed/目录"""
+    def _save_results(self, df, dataset_name: str) -> str:
+        """
+        保存最终结果到data/processed/目录
+        
+        Returns:
+            输出文件路径
+        """
         output_dir = self.config['data_paths'][dataset_name]['processed_dir']
         ensure_dir(output_dir)
         
         # 保存最终处理结果
-        save_data(df, f"{output_dir}/{dataset_name}_final.parquet")
+        output_path = f"{output_dir}/{dataset_name}_final.parquet"
+        save_data(df, output_path)
         
         logger.info(f"最终数据已保存到 {output_dir}/")
+        return output_path
+    
+    def _generate_statistics(self, df, dataset_name: str, output_path: str) -> dict:
+        """
+        生成数据集处理统计信息
+        
+        Returns:
+            统计信息字典
+        """
+        stats = {
+            'dataset': dataset_name,
+            'total_samples': len(df),
+            'output_file': output_path,
+            'features': {}
+        }
+        
+        # 统计文本特征
+        text_features = [col for col in df.columns if col in [
+            'review_length', 'sentiment_score', 'subjectivity_score',
+            'exclamation_ratio', 'first_person_pronoun_ratio'
+        ]]
+        stats['features']['text'] = len(text_features)
+        
+        # 统计行为特征
+        behavior_features = [col for col in df.columns if col.startswith('user_')]
+        stats['features']['behavior'] = len(behavior_features)
+        
+        # 统计离散化特征
+        discrete_features = [col for col in df.columns if col.endswith('_discrete')]
+        stats['features']['discrete'] = len(discrete_features)
+        
+        # 统计弱标签分布（如果存在）
+        if 'weak_label' in df.columns:
+            label_dist = df['weak_label'].value_counts().to_dict()
+            stats['weak_label_distribution'] = {
+                'suspicious': int(label_dist.get(1, 0)),
+                'normal': int(label_dist.get(0, 0)),
+                'missing': int(df['weak_label'].isna().sum())
+            }
+        
+        # 统计后验概率（如果存在）
+        if 'weak_label_posterior_prob' in df.columns:
+            posterior = df['weak_label_posterior_prob'].dropna()
+            if len(posterior) > 0:
+                stats['posterior_prob'] = {
+                    'mean': float(posterior.mean()),
+                    'median': float(posterior.median()),
+                    'max': float(posterior.max()),
+                    'samples_with_prob': len(posterior)
+                }
+        
+        return stats
 
 
 def main():
@@ -252,15 +336,71 @@ def main():
     # 初始化Pipeline
     pipeline = BayesReviewNetPipeline(args.config)
     
-    # 处理每个数据集
+    # 处理每个数据集并收集统计信息
+    results = {}
     for dataset_name in datasets:
         try:
-            pipeline.run(dataset_name, args.structure)
+            stats = pipeline.run(dataset_name, args.structure)
+            results[dataset_name] = stats
         except Exception as e:
             logger.error(f"处理数据集 {dataset_name} 时出错: {e}", exc_info=True)
+            results[dataset_name] = {'status': 'failed', 'error': str(e)}
             continue
     
+    # 打印汇总统计
+    _print_summary(results)
+    
     logger.info("\n🎉 所有任务完成！")
+
+
+def _print_summary(results: dict):
+    """
+    打印处理结果汇总
+    
+    Args:
+        results: 各数据集的处理结果字典
+    """
+    logger.info("\n" + "="*80)
+    logger.info("处理结果汇总")
+    logger.info("="*80)
+    
+    for dataset_name, stats in results.items():
+        if stats.get('status') == 'failed':
+            logger.info(f"\n❌ {dataset_name.upper()}: 处理失败")
+            logger.info(f"   错误: {stats.get('error', 'Unknown')}")
+            continue
+        
+        logger.info(f"\n✅ {dataset_name.upper()}")
+        logger.info(f"   样本数: {stats['total_samples']:,}")
+        logger.info(f"   特征统计:")
+        logger.info(f"      - Text特征: {stats['features']['text']} 个")
+        logger.info(f"      - Behavior特征: {stats['features']['behavior']} 个")
+        logger.info(f"      - 离散化特征: {stats['features']['discrete']} 个")
+        
+        # 弱标签分布
+        if 'weak_label_distribution' in stats:
+            dist = stats['weak_label_distribution']
+            total_labeled = dist['suspicious'] + dist['normal']
+            if total_labeled > 0:
+                susp_rate = dist['suspicious'] / total_labeled * 100
+                logger.info(f"   弱标签分布:")
+                logger.info(f"      - 可疑: {dist['suspicious']:,} ({susp_rate:.1f}%)")
+                logger.info(f"      - 正常: {dist['normal']:,} ({100-susp_rate:.1f}%)")
+                if dist['missing'] > 0:
+                    logger.info(f"      - 缺失: {dist['missing']:,}")
+        
+        # 后验概率统计
+        if 'posterior_prob' in stats:
+            post = stats['posterior_prob']
+            logger.info(f"   后验概率:")
+            logger.info(f"      - 平均: {post['mean']:.4f}")
+            logger.info(f"      - 中位数: {post['median']:.4f}")
+            logger.info(f"      - 最大值: {post['max']:.4f}")
+            logger.info(f"      - 有效样本: {post['samples_with_prob']:,}")
+        
+        logger.info(f"   输出文件: {stats['output_file']}")
+    
+    logger.info("\n" + "="*80)
 
 
 if __name__ == '__main__':

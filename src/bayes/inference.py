@@ -64,8 +64,16 @@ class BayesianInference:
         posterior_probs = []
         
         for idx, row in df.iterrows():
-            # 提取父节点的值
-            parent_values = {p: row.get(p, None) for p in parents if p in row}
+            # 提取父节点的值,将NaN替换为'MISSING'
+            parent_values = {}
+            for p in parents:
+                if p in row:
+                    val = row[p]
+                    # 将NaN替换为'MISSING'
+                    if pd.isna(val):
+                        parent_values[p] = 'MISSING'
+                    else:
+                        parent_values[p] = val
             
             # 查询 P(target=1 | parents)
             prob_fake = self.cpd_learner.query_cpd(

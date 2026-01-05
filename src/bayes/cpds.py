@@ -138,11 +138,11 @@ class CPDLearner:
         Returns:
             条件概率字典
         """
-        # 过滤有效数据
-        valid_cols = [node] + [p for p in parents if p in df.columns]
-        df_valid = df[valid_cols].dropna()
+        # 只过滤目标节点的NaN,父节点的NaN用'MISSING'填充
+        df_work = df.copy()
         
-        if len(df_valid) == 0:
+        # 检查目标节点是否有效
+        if node not in df_work.columns or df_work[node].isna().all():
             logger.warning(f"节点 {node} 无有效数据")
             return {
                 'type': 'conditional',
@@ -151,6 +151,27 @@ class CPDLearner:
                 'probabilities': {}
             }
         
+        # 只过滤目标节点的NaN
+        df_valid = df_work[df_work[node].notna()].copy()
+        
+        if len(df_valid) == 0:
+            logger.warning(f"节点 {node} 过滤后无有效数据")
+            return {
+                'type': 'conditional',
+                'node': node,
+                'parents': parents,
+                'probabilities': {}
+            }
+        
+        # 对于父节点,将NaN填充为'MISSING'
+        for parent in parents:
+            if parent in df_valid.columns:
+                # 如果是Categorical类型,需要先添加'MISSING'类别
+                if pd.api.types.is_categorical_dtype(df_valid[parent]):
+                    if 'MISSING' not in df_valid[parent].cat.categories:
+                        df_valid[parent] = df_valid[parent].cat.add_categories(['MISSING'])
+                df_valid[parent] = df_valid[parent].fillna('MISSING')
+        
         # 获取各变量的状态
         node_states = df_valid[node].unique().tolist()
         
@@ -158,20 +179,32 @@ class CPDLearner:
         cpd_table = defaultdict(dict)
         
         # 对每个父节点组合
-        for parent_values, group in df_valid.groupby([p for p in parents if p in df.columns]):
-            if not isinstance(parent_values, tuple):
-                parent_values = (parent_values,)
-            
-            # 统计子节点各状态的频数
-            value_counts = group[node].value_counts()
-            n = len(group)
+        parent_cols = [p for p in parents if p in df_valid.columns]
+        if len(parent_cols) == 0:
+            # 没有父节点,学习边际概率
+            value_counts = df_valid[node].value_counts()
+            n = len(df_valid)
             k = len(node_states)
-            
-            # 计算条件概率（带平滑）
             for state in node_states:
                 count = value_counts.get(state, 0)
                 prob = (count + smoothing) / (n + smoothing * k)
-                cpd_table[parent_values][state] = prob
+                cpd_table[()][state] = prob
+        else:
+            # 有父节点,按父节点组合分组
+            for parent_values, group in df_valid.groupby(parent_cols):
+                if not isinstance(parent_values, tuple):
+                    parent_values = (parent_values,)
+                
+                # 统计子节点各状态的频数
+                value_counts = group[node].value_counts()
+                n = len(group)
+                k = len(node_states)
+                
+                # 计算条件概率（带平滑）
+                for state in node_states:
+                    count = value_counts.get(state, 0)
+                    prob = (count + smoothing) / (n + smoothing * k)
+                    cpd_table[parent_values][state] = prob
         
         return {
             'type': 'conditional',
