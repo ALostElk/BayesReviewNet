@@ -6,13 +6,11 @@
 """
 from src.preprocessing.amazon import AmazonPreprocessor
 from src.preprocessing.yelp import YelpPreprocessor
-from src.preprocessing.opspam import OpSpamPreprocessor
 from src.preprocessing.common import standardize_timestamp, clean_text, generate_review_id
 
 __all__ = [
     'AmazonPreprocessor',
     'YelpPreprocessor',
-    'OpSpamPreprocessor',
     'standardize_timestamp',
     'clean_text',
     'generate_review_id'
