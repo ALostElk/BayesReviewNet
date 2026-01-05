@@ -165,9 +165,9 @@ class BayesReviewNetPipeline:
         # network_extractor = NetworkFeatureExtractor()
         # df = network_extractor.extract(df)
         
-        # 2.4 特征离散化
-        logger.info("  → 特征离散化...")
-        discretizer = FeatureDiscretizer(self.config['discretization'])
+        # 2.4 特征离散化（数据驱动的分位数离散化）
+        logger.info("  → 特征离散化（基于分位数）...")
+        discretizer = FeatureDiscretizer()  # 不再需要config参数
         df = discretizer.discretize(df)
         
         logger.info(f"特征工程完成: {len([c for c in df.columns if '_discrete' in c])} 个离散特征")
@@ -324,8 +324,39 @@ def main():
         default='default',
         help='贝叶斯网络结构类型'
     )
+    parser.add_argument(
+        '--cross-domain',
+        action='store_true',
+        help='启用跨域迁移模式（Amazon→Yelp，使用似然校准）'
+    )
+    parser.add_argument(
+        '--use-validation',
+        action='store_true',
+        default=True,
+        help='使用预定义的验证集进行校准（默认True）'
+    )
+    parser.add_argument(
+        '--calibration-ratio',
+        type=float,
+        default=0.20,
+        help='校准集比例（仅在--no-use-validation时生效，默认0.20）'
+    )
+    parser.add_argument(
+        '--calibration-strength',
+        type=float,
+        default=0.3,
+        help='校准强度α（默认0.3，范围0-1）'
+    )
     
     args = parser.parse_args()
+    
+    # 如果启用跨域迁移模式，使用专门的pipeline
+    if args.cross_domain:
+        logger.info("\n" + "="*80)
+        logger.info("跨域迁移模式 (Cross-Domain Transfer Mode)")
+        logger.info("="*80)
+        _run_cross_domain_transfer(args)
+        return
     
     # 确定要处理的数据集
     if 'all' in args.datasets:
@@ -351,6 +382,298 @@ def main():
     _print_summary(results)
     
     logger.info("\n🎉 所有任务完成！")
+
+
+def _run_cross_domain_transfer(args):
+    """
+    运行跨域迁移学习
+    
+    Amazon (源域) → Yelp (目标域) + 似然校准
+    
+    Args:
+        args: 命令行参数
+    """
+    from utils.config import load_config
+    from utils.data_split import split_for_calibration, validate_split
+    from preprocessing import AmazonPreprocessor, YelpPreprocessor
+    from preprocessing.weak_labeling import construct_weak_label
+    from features import TextFeatureExtractor, BehaviorFeatureExtractor, FeatureDiscretizer
+    from bayes import BayesianNetworkStructure, CPDLearner, BayesianInference, LikelihoodCalibrator
+    from evaluation import evaluate_model
+    
+    config = load_config(args.config)
+    
+    logger.info(f"配置:")
+    logger.info(f"  - 使用验证集: {args.use_validation}")
+    if not args.use_validation:
+        logger.info(f"  - 校准集比例: {args.calibration_ratio*100:.0f}%")
+    logger.info(f"  - 校准强度 α: {args.calibration_strength}")
+    logger.info(f"  - 网络结构: {args.structure}")
+    
+    # ========== 步骤1: 准备Amazon源域数据 ==========
+    logger.info("\n【步骤1】准备Amazon源域数据")
+    amazon_preprocessor = AmazonPreprocessor(config['data_paths']['amazon']['raw_dir'])
+    amazon_sample_size = config['sampling']['amazon_sample_size'] \
+        if config['sampling']['enabled'] else None
+    amazon_df = amazon_preprocessor.load_and_standardize(amazon_sample_size)
+    
+    # 特征提取
+    logger.info("  → 提取特征...")
+    amazon_df = _extract_all_features(amazon_df)
+    amazon_df = construct_weak_label(amazon_df, 'amazon')
+    logger.info(f"  ✓ Amazon数据: {len(amazon_df)} 条")
+    
+    # ========== 步骤2: 在Amazon上训练贝叶斯网络 ==========
+    logger.info("\n【步骤2】在Amazon上训练贝叶斯网络（源域）")
+    structure = BayesianNetworkStructure()
+    structure.define_structure(args.structure)
+    logger.info(f"  ✓ DAG结构: {len(structure.edges)} 条边")
+    
+    amazon_cpd = CPDLearner(structure)
+    amazon_cpd.learn_cpds(amazon_df, smoothing=1.0)
+    logger.info(f"  ✓ CPD学习完成（源域知识）")
+    
+    # ========== 步骤3: 准备Yelp目标域数据并划分 ==========
+    logger.info("\n【步骤3】准备Yelp目标域数据并划分")
+    yelp_preprocessor = YelpPreprocessor(config['data_paths']['yelp']['raw_dir'])
+    
+    if args.use_validation:
+        # 使用固定的验证集划分（首次运行时创建，后续重用）
+        logger.info("  → 使用固定的验证集划分（确保可重复性）")
+        
+        yelp_calib, yelp_test = _load_or_create_fixed_split(
+            yelp_preprocessor,
+            config,
+            calibration_ratio=args.calibration_ratio
+        )
+        
+        logger.info(f"  ✓ 验证集（校准用）: {len(yelp_calib)} 条")
+        logger.info(f"  ✓ 测试集: {len(yelp_test)} 条")
+        
+    else:
+        # 随机划分方式（每次运行重新划分）
+        yelp_sample_size = config['sampling']['yelp_sample_size'] \
+            if config['sampling']['enabled'] else None
+        yelp_df = yelp_preprocessor.load_and_standardize(yelp_sample_size)
+        
+        # 特征提取
+        logger.info("  → 提取特征...")
+        yelp_df = _extract_all_features(yelp_df)
+        yelp_df = construct_weak_label(yelp_df, 'yelp')
+        logger.info(f"  ✓ Yelp数据: {len(yelp_df)} 条")
+        
+        # 划分为校准集和测试集
+        logger.info(f"  → 随机划分数据（校准:{args.calibration_ratio*100:.0f}% / 测试:{(1-args.calibration_ratio)*100:.0f}%）")
+        yelp_calib, yelp_test = split_for_calibration(
+            yelp_df,
+            calibration_ratio=args.calibration_ratio,
+            stratify_by='weak_label',
+            random_state=42
+        )
+        validate_split(yelp_calib, yelp_test, label_col='weak_label')
+    
+    # ========== 步骤4: 执行似然校准 ==========
+    logger.info(f"\n【步骤4】执行似然校准（α={args.calibration_strength}）")
+    calibrator = LikelihoodCalibrator(
+        amazon_cpd,
+        calibration_strength=args.calibration_strength
+    )
+    calibrator.calibrate(yelp_calib, target_variable='weak_label')
+    
+    calibrated_cpd = calibrator.get_calibrated_cpd_learner()
+    calib_report = calibrator.get_calibration_report()
+    logger.info(f"  ✓ 校准完成:")
+    logger.info(f"    - 总节点: {calib_report['total_nodes']}")
+    logger.info(f"    - 已校准: {calib_report['calibrated_nodes']}")
+    logger.info(f"    - 保持不变: {calib_report['kept_nodes']}")
+    
+    # ========== 步骤5: 在测试集上评估 ==========
+    logger.info("\n【步骤5】在Yelp测试集上评估")
+    
+    # 5a. 基线（无校准）
+    logger.info("  → 基线性能（无校准）:")
+    baseline_results = _evaluate_on_test(yelp_test, structure, amazon_cpd)
+    
+    # 5b. 校准后
+    logger.info("\n  → 校准后性能:")
+    calibrated_results = _evaluate_on_test(yelp_test, structure, calibrated_cpd)
+    
+    # ========== 步骤6: 对比分析 ==========
+    logger.info("\n【步骤6】性能对比分析")
+    _compare_performance(baseline_results, calibrated_results)
+    
+    # ========== 步骤7: 保存结果 ==========
+    logger.info("\n【步骤7】保存结果")
+    output_path = f"data/processed/yelp_calibrated_r{int(args.calibration_ratio*100)}_a{int(args.calibration_strength*100)}.parquet"
+    
+    # 在校准后的CPD上进行推断
+    inference = BayesianInference(structure, calibrated_cpd)
+    yelp_test = inference.infer_posterior(yelp_test, target_variable='weak_label')
+    
+    from utils.io import save_data
+    save_data(yelp_test, output_path)
+    logger.info(f"  ✓ 结果已保存: {output_path}")
+    
+    logger.info("\n" + "="*80)
+    logger.info("🎉 跨域迁移学习完成！")
+    logger.info("="*80)
+
+
+def _load_or_create_fixed_split(yelp_preprocessor, config, calibration_ratio=0.20):
+    """
+    加载或创建固定的Yelp验证集/测试集划分
+    
+    首次运行时创建划分并保存索引，后续运行重用相同的划分
+    这确保了跨域实验的可重复性
+    
+    Args:
+        yelp_preprocessor: Yelp预处理器
+        config: 配置字典
+        calibration_ratio: 验证集比例
+        
+    Returns:
+        (validation_df, test_df)
+    """
+    from pathlib import Path
+    import pickle
+    from preprocessing.weak_labeling import construct_weak_label
+    
+    # 划分索引文件路径
+    split_file = Path('data/processed/yelp_fixed_split_indices.pkl')
+    
+    # 加载完整的Yelp数据
+    yelp_sample_size = config['sampling']['yelp_sample_size'] \
+        if config['sampling']['enabled'] else None
+    yelp_df = yelp_preprocessor.load_and_standardize(yelp_sample_size)
+    
+    # 特征提取（在划分之前）
+    logger.info("  → 提取特征...")
+    yelp_df = _extract_all_features(yelp_df)
+    yelp_df = construct_weak_label(yelp_df, 'yelp')
+    
+    # 检查是否存在固定划分
+    if split_file.exists():
+        logger.info(f"  → 加载固定划分索引: {split_file}")
+        with open(split_file, 'rb') as f:
+            split_indices = pickle.load(f)
+        
+        val_indices = split_indices['validation']
+        test_indices = split_indices['test']
+        
+        # 使用保存的索引划分数据
+        validation_df = yelp_df.iloc[val_indices].copy()
+        test_df = yelp_df.iloc[test_indices].copy()
+        
+        logger.info(f"  ✓ 使用固定划分（验证集:{len(validation_df)}, 测试集:{len(test_df)}）")
+        
+    else:
+        logger.info(f"  → 创建新的固定划分（验证集:{calibration_ratio*100:.0f}%）")
+        
+        # 创建新划分
+        from utils.data_split import split_for_calibration, validate_split
+        
+        validation_df, test_df = split_for_calibration(
+            yelp_df,
+            calibration_ratio=calibration_ratio,
+            stratify_by='weak_label',
+            random_state=42
+        )
+        
+        # 保存索引以供后续使用
+        split_indices = {
+            'validation': validation_df.index.tolist(),
+            'test': test_df.index.tolist(),
+            'calibration_ratio': calibration_ratio,
+            'total_samples': len(yelp_df)
+        }
+        
+        split_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(split_file, 'wb') as f:
+            pickle.dump(split_indices, f)
+        
+        logger.info(f"  ✓ 固定划分已保存: {split_file}")
+        
+        # 验证划分
+        validate_split(validation_df, test_df, label_col='weak_label')
+    
+    return validation_df, test_df
+
+
+def _extract_all_features(df):
+    """辅助函数：提取所有特征"""
+    text_extractor = TextFeatureExtractor()
+    df = text_extractor.extract(df)
+    
+    behavior_extractor = BehaviorFeatureExtractor()
+    df = behavior_extractor.extract(df)
+    
+    discretizer = FeatureDiscretizer()
+    df = discretizer.discretize(df)
+    
+    return df
+
+
+def _evaluate_on_test(test_df, structure, cpd_learner):
+    """辅助函数：在测试集上评估"""
+    from evaluation.metrics import find_optimal_threshold
+    
+    inference = BayesianInference(structure, cpd_learner)
+    test_df = inference.infer_posterior(test_df.copy(), target_variable='weak_label')
+    
+    # 后验概率统计
+    if 'weak_label_posterior_prob' in test_df.columns:
+        posterior = test_df['weak_label_posterior_prob'].dropna()
+        if len(posterior) > 0:
+            logger.info(f"    后验均值: {posterior.mean():.4f}")
+            logger.info(f"    后验中位数: {posterior.median():.4f}")
+    
+    # 找到最优阈值
+    optimal_result = find_optimal_threshold(test_df, metric='f1')
+    optimal_threshold = optimal_result['best_threshold']
+    logger.info(f"    最优阈值: {optimal_threshold:.4f}")
+    
+    # 使用最优阈值评估
+    results = evaluate_model(test_df, threshold=optimal_threshold)
+    metrics = results['metrics']
+    
+    logger.info(f"    Precision: {metrics['precision']:.4f}")
+    logger.info(f"    Recall:    {metrics['recall']:.4f}")
+    logger.info(f"    F1-Score:  {metrics['f1']:.4f}")
+    logger.info(f"    ROC-AUC:   {metrics.get('roc_auc', 'N/A')}")
+    
+    return results
+
+
+def _compare_performance(baseline, calibrated):
+    """辅助函数：对比性能"""
+    logger.info("\n  ┌────────────┬──────────┬────────────┬─────────┐")
+    logger.info("  │   指标     │ Baseline │ Calibrated │  提升   │")
+    logger.info("  ├────────────┼──────────┼────────────┼─────────┤")
+    
+    metrics = ['precision', 'recall', 'f1', 'roc_auc']
+    metric_names = ['Precision', 'Recall', 'F1-Score', 'ROC-AUC']
+    
+    for metric, name in zip(metrics, metric_names):
+        base_val = baseline['metrics'].get(metric, 0.0)
+        calib_val = calibrated['metrics'].get(metric, 0.0)
+        improvement = calib_val - base_val
+        
+        improvement_str = f"+{improvement:.4f}" if improvement >= 0 else f"{improvement:.4f}"
+        
+        logger.info(
+            f"  │ {name:10s} │ {base_val:8.4f} │  {calib_val:8.4f}  │ {improvement_str:7s} │"
+        )
+    
+    logger.info("  └────────────┴──────────┴────────────┴─────────┘")
+    
+    # 总结
+    f1_improvement = calibrated['metrics']['f1'] - baseline['metrics']['f1']
+    if f1_improvement > 0.01:
+        logger.info(f"\n  ✓ 校准有效！F1-Score提升 {f1_improvement:.4f}")
+    elif f1_improvement > 0:
+        logger.info(f"\n  → 校准略有改善，F1-Score提升 {f1_improvement:.4f}")
+    else:
+        logger.info(f"\n  ⚠ 校准未带来显著提升，F1-Score变化 {f1_improvement:.4f}")
 
 
 def _print_summary(results: dict):

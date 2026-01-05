@@ -22,48 +22,19 @@ text_features:
 user_features:
   min_review_count: 1  # 最小评论数
   
-# 离散化配置
+# 离散化配置（数据驱动的分位数离散化）
+# 注意：不再使用固定阈值，而是在每个数据集内部使用qcut计算分位点
+# 这确保了统计稳健性，每个状态的样本数近似相等
 discretization:
-  # 评论长度离散化
-  review_length:
-    bins: [0, 50, 200, 10000]
-    labels: ["SHORT", "NORMAL", "LONG"]
-  
-  # 情感分数离散化
-  sentiment_score:
-    bins: [-1.0, -0.3, 0.3, 1.0]
-    labels: ["NEGATIVE", "NEUTRAL", "POSITIVE"]
-  
-  # 主观性分数离散化
-  subjectivity_score:
-    bins: [0, 0.3, 0.7, 1.0]
-    labels: ["OBJECTIVE", "MIXED", "SUBJECTIVE"]
-  
-  # 用户评论数离散化
-  user_review_count:
-    bins: [0, 5, 20, 10000]
-    labels: ["LOW", "MEDIUM", "HIGH"]
-  
-  # 评分偏差离散化
-  user_rating_deviation:
-    bins: [0, 0.5, 1.5, 5.0]
-    labels: ["LOW", "MEDIUM", "HIGH"]
-  
-  # 评分熵离散化
-  user_rating_entropy:
-    bins: [0, 0.5, 1.2, 2.0]
-    labels: ["LOW", "MEDIUM", "HIGH"]
-  
-  # 评论爆发性离散化
-  user_review_burstiness:
-    bins: [0, 1, 7, 10000]
-    labels: ["RAPID", "NORMAL", "SPARSE"]
+  # 离散化方法：qcut（分位数离散化）
+  # 所有连续特征将被自动离散化为3个状态（三分位）
+  # 具体分位点由数据分布决定，在FeatureDiscretizer中自动计算
 
 # 采样配置（用于快速测试）
 sampling:
   enabled: true  # 启用采样模式进行测试
-  amazon_sample_size: 5000
-  yelp_sample_size: 5000
+  amazon_sample_size: 50000
+  yelp_sample_size: 50000
 
 # 日志配置
 logging:

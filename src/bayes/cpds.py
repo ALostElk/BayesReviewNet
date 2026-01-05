@@ -243,7 +243,26 @@ class CPDLearner:
             parent_key = tuple(parent_values.get(p, None) for p in cpd['parents'])
             
             prob_table = cpd['probabilities'].get(parent_key, {})
-            return prob_table.get(node_value, 0.0)
+            
+            # 如果找到对应的CPD，直接返回
+            if parent_key in cpd['probabilities']:
+                return prob_table.get(node_value, 0.0)
+            
+            # 如果没找到（如跨平台推断），使用边际概率作为fallback
+            # 计算所有parent组合下该node_value的平均概率
+            all_probs = []
+            for key, probs in cpd['probabilities'].items():
+                if node_value in probs:
+                    all_probs.append(probs[node_value])
+            
+            if all_probs:
+                marginal_prob = sum(all_probs) / len(all_probs)
+                logger.debug(f"使用边际概率 for {node}={node_value} | {parent_key}: {marginal_prob:.4f}")
+                return marginal_prob
+            else:
+                # 完全没见过这个node_value，返回uniform
+                n_states = len(cpd.get('node_states', [node_value]))
+                return 1.0 / n_states if n_states > 0 else 0.0
     
     def export_cpds(self) -> Dict:
         """导出所有CPD"""

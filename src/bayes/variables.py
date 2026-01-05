@@ -82,6 +82,13 @@ REVIEW_BURSTINESS = BayesianVariable(
 
 # ============ 平台特定变量 ============
 
+PLATFORM = BayesianVariable(
+    name='platform',
+    states=['amazon', 'yelp'],
+    description='评论来源平台（用于建模先验差异）',
+    variable_type='platform'
+)
+
 VERIFIED_STATUS = BayesianVariable(
     name='verified',
     states=[True, False],
@@ -115,6 +122,7 @@ def get_all_variables() -> Dict[str, BayesianVariable]:
         'rating_deviation': RATING_DEVIATION,
         'rating_entropy': RATING_ENTROPY,
         'review_burstiness': REVIEW_BURSTINESS,
+        'platform': PLATFORM,
         'verified_status': VERIFIED_STATUS,
         'weak_label': WEAK_LABEL
     }

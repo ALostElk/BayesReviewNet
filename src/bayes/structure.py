@@ -49,11 +49,15 @@ class BayesianNetworkStructure:
         定义默认因果结构
         
         因果假设:
-        1. 用户行为 -> 弱标签
-        2. 文本特征 -> 弱标签
-        3. 用户行为 -> 文本特征（间接影响）
-        4. 平台特定 -> 弱标签
+        1. Platform -> Fraud（建模平台先验差异）
+        2. 用户行为 -> 弱标签
+        3. 文本特征 -> 弱标签
+        4. 用户行为 -> 文本特征（间接影响）
+        5. 平台特定观测 -> 弱标签
         """
+        # Platform -> 弱标签（建模先验差异）
+        self.add_edge('platform', 'weak_label')
+        
         # 用户行为 -> 弱标签
         self.add_edge('user_review_count_discrete', 'weak_label')
         self.add_edge('user_rating_deviation_discrete', 'weak_label')
@@ -69,7 +73,7 @@ class BayesianNetworkStructure:
         self.add_edge('user_review_count_discrete', 'review_length_discrete')
         self.add_edge('user_rating_deviation_discrete', 'sentiment_score_discrete')
         
-        # 平台特定 -> 弱标签（Amazon）
+        # 平台特定观测 -> 弱标签（Amazon验证购买标记）
         self.add_edge('verified', 'weak_label')
     
     def _define_naive_bayes_structure(self) -> None:
@@ -79,6 +83,7 @@ class BayesianNetworkStructure:
         所有特征都直接指向标签，特征间相互独立
         """
         features = [
+            'platform',  # 平台先验
             'user_review_count_discrete',
             'user_rating_deviation_discrete',
             'user_rating_entropy_discrete',
