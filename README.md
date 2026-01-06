@@ -446,25 +446,6 @@ output:
 python yelp_only_experiment.py --sample-size 50000
 ```
 
-**输出示例**:
-```
-【模型性能】
-  验证集:
-    precision   : 0.6543
-    recall      : 0.7823
-    f1          : 0.7123
-    roc_auc     : 0.8456
-  
-  测试集:
-    precision   : 0.6421
-    recall      : 0.7756
-    f1          : 0.7026
-    roc_auc     : 0.8389
-
-【泛化能力】
-  Val F1 - Test F1 = +0.0097 (良好)
-```
-
 ---
 
 ### 实验2: DAG 结构对比

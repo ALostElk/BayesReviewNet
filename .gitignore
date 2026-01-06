@@ -9,6 +9,7 @@ venv/
 ENV/
 env/
 .venv/
+latex_figures/
 
 # IDE 配置（个人偏好，不提交）
 .vscode/
@@ -25,6 +26,53 @@ env/
 *.docx
 *.doc
 *.pdf
+
+# LaTeX 相关文件（论文编写，不提交）
+*.aux
+*.log
+*.out
+*.toc
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+*.nav
+*.snm
+*.vrb
+*.xdv
+*.lot
+*.lof
+*.idx
+*.ind
+*.ilg
+*.glo
+*.gls
+*.glg
+*.acn
+*.acr
+*.alg
+*.tex
+
+# LaTeX 生成的图片和输出
+*.dvi
+*.ps
+*.eps
+
+# LaTeX 编辑器临时文件
+*.backup
+*.sav
+*~
+.texpadtmp/
+*.synctex(busy)
+
+# LaTeX 文件夹（如果整个目录都是论文相关）
+latex_output/
+latex_build/
+paper/
+thesis/
 
 # 处理后的数据（运行时生成，不提交）
 processed_data/
@@ -67,4 +115,9 @@ htmlcov/
 # ✓ requirements.txt 依赖文件
 # ✓ 所有 .md 文档文件
 # ✓ metadata/ 目录（特征描述和规则）
+# ✓ latex_figures/*.tex 源代码（架构图代码可提交）
+
+# 例外：latex_figures/ 中的 .tex 源码文件可以提交（用于复现架构图）
+# 但编译生成的 .pdf, .aux 等文件不提交
+!latex_figures/*.tex
 
